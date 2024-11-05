@@ -1,0 +1,104 @@
+1. Yes we do see a reduction in global memory accesses.
+
+Memory loads without using shared memory: 2,570,378
+Memory loads using shared memory:  1,285,127
+
+2. Yes, the shared memory kernel has better performance than the global memory kernel.
+
+CPU time (both)         : 107.486 milliseconds
+GPU time (global memory): 12.8672 milliseconds
+GPU time (shared memory): 7.07168 milliseconds
+
+Speedup (global memory) : 8.34
+Speedup (shared memory) : 15.2
+
+Speedup (global vs shared memory): 15.2/8.34 = 1.82
+
+3. Comparison of global memory accesses:
+matrixMulCUDA()
+For each element in d_C[], we write to it 1024 times.
+Global Memory Writes: 1024 * 1024 * 1024 = 1,073,741,824
+
+For calculation of each element in d_C[], we read from d_A[] and d_B[] 1024 times each.
+Global Memory Reads: 2 * 1024 * 1024 * 1024 = 2,147,483,648
+
+
+matrixMulCUDATiled()
+Now, for each element in d_C[], we write to it 1 time.
+Global Memory Writes: 1 * 1024 * 1024 = 1,048,576
+
+We also read from d_A[] and d_B[] 1 time per element.
+Global Memory Reads: 1 * 1024 * 1024 * 2 = 2,097,152
+
+4. I tried to use the following command to profile the kernel using nvprof:
+ncu --metric sm__warps_active.avg.per_cycle_active,sm__warps_active.max.per_cycle_active,sm__maximum_warps_avg_per_active_cycle ./matrix 2
+
+I tried with following block sizes:
+blockSize = 8, time = 0.610976 msec
+    -------------------------------------- ----------- ------------
+    Metric Name                            Metric Unit Metric Value
+    -------------------------------------- ----------- ------------
+    sm__maximum_warps_avg_per_active_cycle        warp           64
+    sm__warps_active.avg.per_cycle_active         warp        58.13
+    sm__warps_active.max.per_cycle_active         warp        58.99
+    -------------------------------------- ----------- ------------
+
+blockSize = 16, time =0.449760 msec
+    -------------------------------------- ----------- ------------
+    Metric Name                            Metric Unit Metric Value
+    -------------------------------------- ----------- ------------
+    sm__maximum_warps_avg_per_active_cycle        warp           64
+    sm__warps_active.avg.per_cycle_active         warp        58.23
+    sm__warps_active.max.per_cycle_active         warp        59.87
+    -------------------------------------- ----------- ------------
+
+blockSize = 32, time = 0.406592 msec
+    -------------------------------------- ----------- ------------
+    Metric Name                            Metric Unit Metric Value
+    -------------------------------------- ----------- ------------
+    sm__maximum_warps_avg_per_active_cycle        warp           64
+    sm__warps_active.avg.per_cycle_active         warp        60.02
+    sm__warps_active.max.per_cycle_active         warp        62.13
+    -------------------------------------- ----------- ------------
+
+
+With blocksize = 32, we see the max warp utilization and the lowest execution time.
+
+5. I created a python function (below the results) to peform the calculation for the access metrics.
+
+Results (Shared:Global):
+(a) 51076:61820
+(b) 315844:135740
+(c) 614656:500480
+(d) 1:1088
+
+Python Function:
+
+def count_accesses(n, m):
+    # Initialize counters
+    in_A_accesses = 0
+    out_A_accesses = 0
+
+    # Iterate over each element in A
+    for i in range(n):
+        for j in range(n):
+            # For each element, compute its m*m access area
+            for x in range(i - m // 2, i + m // 2 + 1):
+                for y in range(j - m // 2, j + m // 2 + 1):
+                    # Check if the access is inside or outside A
+                    if 0 <= x < n and 0 <= y < n:
+                        in_A_accesses += 1
+                    else:
+                        out_A_accesses += 1
+
+    # Calculate total accesses and percentage of accesses within A
+    total_accesses = in_A_accesses + out_A_accesses
+    percentage_in_A = (in_A_accesses / total_accesses) * 100 if total_accesses > 0 else 0
+
+    # Print results in a nice format
+    print(f"Access Metrics for n={n}, m={m}:\n")
+    print(f"Total accesses: {total_accesses}")
+    print(f"Shared Memory Accesses: {in_A_accesses}")
+    print(f"Global Memory Accesses: {out_A_accesses}")
+    print(f"% Shared Memory Accesses: {percentage_in_A:.2f}%")
+
